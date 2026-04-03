@@ -5,20 +5,75 @@ const FontLink = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#0b0f1a;--bg2:#111827;--bg3:#1a2236;
-      --glass:rgba(255,255,255,0.04);--glass-border:rgba(255,255,255,0.08);
-      --gold:#c9a84c;--gold-light:#e8c97a;--gold-dim:rgba(201,168,76,0.15);
-      --green:#3ecf8e;--green-dim:rgba(62,207,142,0.12);
-      --red:#f05c6e;--red-dim:rgba(240,92,110,0.12);
-      --blue:#5b9cf6;--blue-dim:rgba(91,156,246,0.12);
-      --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.12);
-      --text:#e8ecf4;--text2:#8893a8;--text3:#4a5568;
-      --radius:16px;--radius-sm:10px;--shadow:0 8px 32px rgba(0,0,0,0.4);
-      --font-display:'Playfair Display',serif;
-      --font-body:'DM Sans',sans-serif;
-      --font-mono:'DM Mono',monospace;
-    }
+    :root {
+  --radius:16px;
+  --radius-sm:10px;
+  --shadow:0 8px 32px rgba(0,0,0,0.4);
+
+  --font-display:'Playfair Display',serif;
+  --font-body:'DM Sans',sans-serif;
+  --font-mono:'DM Mono',monospace;
+}
+  * {
+  transition: background 0.3s ease, color 0.3s ease, border 0.3s ease;
+}
+  body[data-theme="dark"] {
+  --bg:#0b0f1a;
+  --bg2:#111827;
+  --bg3:#1a2236;
+
+  --glass:rgba(255,255,255,0.04);
+  --glass-border:rgba(255,255,255,0.08);
+
+  --gold:#c9a84c;
+  --gold-light:#e8c97a;
+  --gold-dim:rgba(201,168,76,0.15);
+
+  --green:#3ecf8e;
+  --green-dim:rgba(62,207,142,0.12);
+
+  --red:#f05c6e;
+  --red-dim:rgba(240,92,110,0.12);
+
+  --blue:#5b9cf6;
+  --blue-dim:rgba(91,156,246,0.12);
+
+  --purple:#a78bfa;
+  --purple-dim:rgba(167,139,250,0.12);
+
+  --text:#e8ecf4;
+  --text2:#8893a8;
+  --text3:#4a5568;
+}
+  body[data-theme="light"] {
+  --bg: #f3eda3;              /* soft butter white */
+  --bg2: #f7f7ee;             /* cards */
+  --bg3: #fbf3d4;             /* light yellow panels */
+
+  --glass: rgba(221, 215, 194, 0.15);
+  --glass-border: rgba(255, 200, 80, 0.25);
+
+  --gold: #d4a017;            /* rich butter gold */
+  --gold-light: #f4d03f;
+  --gold-dim: rgba(212,160,23,0.15);
+
+  --green: #22c55e;
+  --green-dim: rgba(34,197,94,0.12);
+
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.12);
+
+  --blue: #3b82f6;
+  --blue-dim: rgba(59,130,246,0.12);
+
+  --purple: #8b5cf6;
+  --purple-dim: rgba(139,92,246,0.12);
+
+  --text: #2b2b2b;            /* dark grey for readability */
+  --text2: #6b7280;
+  --text3: #9ca3af;
+  
+}
     body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;overflow-x:hidden}
     ::-webkit-scrollbar{width:5px;height:5px}
     ::-webkit-scrollbar-track{background:var(--bg)}
@@ -792,6 +847,11 @@ function Toast({ toast }) {
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [transactions, setTransactions] = useState(SEED.map((t) => ({ ...t })));
+   const [theme, setTheme] = useState("light");
+
+  useEffect(() => {
+    document.body.setAttribute("data-theme", theme);
+  }, [theme]);
   const [nextId, setNextId] = useState(121);
   const [tab, setTab] = useState("dashboard");
   const [role, setRole] = useState("admin");
@@ -854,12 +914,13 @@ export default function App() {
   };
 
   const navItems = [["dashboard", "◈", "Dashboard"], ["transactions", "⊟", "Transactions"], ["insights", "◉", "Insights"]];
-  const tabTitles = { dashboard: "Overview", transactions: "Transactions", insights: "Insights" };
-  const tabSubs = { dashboard: "Your financial snapshot — click any month on the chart", transactions: "All income & expenses", insights: "Patterns and performance" };
+  const tabTitles = { dashboard: "", transactions: "Transactions", insights: "Insights" };
+  const tabSubs = { dashboard: "", transactions: "All income & expenses", insights: "Patterns and performance" };
 
   return (
     <>
       <FontLink />
+      
       <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
 
         {/* Overlay (mobile) */}
@@ -921,6 +982,20 @@ export default function App() {
               <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 2 }}>{tabSubs[tab]}</div>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+  style={{
+    padding: "6px 12px",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--glass)",
+    border: "1px solid var(--glass-border)",
+    color: "var(--text)",
+    fontSize: 14,
+    cursor: "pointer"
+  }}
+>
+  {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+</button>
               {role === "admin" && (
                 <button onClick={openAdd} style={{ padding: "9px 18px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", background: "var(--gold)", color: "#0b0f1a", display: "inline-flex", alignItems: "center", gap: 7 }}>＋ Add Transaction</button>
               )}
