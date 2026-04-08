@@ -653,7 +653,7 @@ function QuickInsights({ d }) {
 // ─── TRANSACTIONS VIEW ────────────────────────────────────────────────────────
 const FILTERS = ["all", "income", "expense", "food", "shopping", "travel", "health", "rent", "investment", "entertainment", "utilities", "salary", "freelance"];
 
-function TransactionsView({ transactions, role, onAdd, onEdit, onDelete }) {
+function TransactionsView({ transactions, onAdd, onEdit, onDelete }) {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState("date");
@@ -681,9 +681,7 @@ function TransactionsView({ transactions, role, onAdd, onEdit, onDelete }) {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "var(--text3)" }}>{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
-            {role === "admin" && (
-              <button onClick={onAdd} style={{ padding: "9px 18px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", background: "var(--gold)", color: "#0b0f1a", display: "inline-flex", alignItems: "center", gap: 7 }}>＋ Add</button>
-            )}
+            <button onClick={onAdd} style={{ padding: "9px 18px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", background: "var(--gold)", color: "#0b0f1a", display: "inline-flex", alignItems: "center", gap: 7 }}>＋ Add</button>
           </div>
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -705,10 +703,10 @@ function TransactionsView({ transactions, role, onAdd, onEdit, onDelete }) {
                 {label}{key ? sa(key) : ""}
               </th>
             ))}
-            {role === "admin" && <th style={{ fontSize: 10, letterSpacing: "1.5px", textTransform: "uppercase", color: "var(--text3)", padding: "12px 20px", textAlign: "left", borderBottom: "1px solid var(--glass-border)" }}>Actions</th>}
+            <th style={{ fontSize: 10, letterSpacing: "1.5px", textTransform: "uppercase", color: "var(--text3)", padding: "12px 20px", textAlign: "left", borderBottom: "1px solid var(--glass-border)" }}>Actions</th>
           </tr></thead>
           <tbody>
-            {filtered.length ? filtered.map((t) => <TxRow key={t.id} t={t} showActions isAdmin={role === "admin"} onEdit={onEdit} onDelete={onDelete} />) : (
+            {filtered.length ? filtered.map((t) => <TxRow key={t.id} t={t} showActions isAdmin onEdit={onEdit} onDelete={onDelete} />) : (
               <tr><td colSpan={6}><div style={{ textAlign: "center", padding: "48px 24px", color: "var(--text3)" }}><div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div><div>No results</div></div></td></tr>
             )}
           </tbody>
@@ -846,30 +844,167 @@ function Toast({ toast }) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [transactions, setTransactions] = useState(SEED.map((t) => ({ ...t })));
-   const [theme, setTheme] = useState("light");
-
-  useEffect(() => {
-    document.body.setAttribute("data-theme", theme);
-  }, [theme]);
-  const [nextId, setNextId] = useState(121);
+  const [transactions, setTransactions] = useState([]);
+  const [theme, setTheme] = useState("light");
   const [tab, setTab] = useState("dashboard");
-  const [role, setRole] = useState("admin");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(null);       // null | 'add' | 'edit'
+  const [modal, setModal] = useState(null);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ desc: "", amount: "", cat: "food", type: "expense", date: "" });
   const [toast, setToast] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem("aurum_token") || "");
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState("login");
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [registerForm, setRegisterForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const toastTimer = useRef(null);
+
+  useEffect(() => {
+    document.body.setAttribute("data-theme", theme);
+  }, [theme]);
 
   const showToast = useCallback((msg, type = "success") => {
     setToast({ msg, type });
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2800);
   }, []);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  const apiRequest = useCallback(async (path, options = {}, authToken = token) => {
+    const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000") + "/api";
+    const headers = {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    } catch {
+      throw new Error("Cannot connect to server. Please start backend on port 4000.");
+    }
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data.message || "Request failed");
+    }
+    return data;
+  }, [token]);
+
+  const loadTransactions = useCallback(async (authToken = token) => {
+    const data = await apiRequest("/transactions", {}, authToken);
+    setTransactions(data.transactions || []);
+  }, [apiRequest, token]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const boot = async () => {
+      if (!token) {
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const meData = await apiRequest("/auth/me", {}, token);
+        if (cancelled) return;
+        setUser(meData.user);
+        await loadTransactions(token);
+      } catch (error) {
+        localStorage.removeItem("aurum_token");
+        if (!cancelled) {
+          setToken("");
+          setUser(null);
+          setTransactions([]);
+          showToast(error.message || "Session expired", "error");
+        }
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    };
+
+    boot();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apiRequest, loadTransactions, showToast]);
+
+  const login = async (e) => {
+    e.preventDefault();
+    try {
+      setAuthLoading(true);
+      const data = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(loginForm),
+      }, "");
+
+      localStorage.setItem("aurum_token", data.token);
+      setToken(data.token);
+      setUser(data.user);
+      await loadTransactions(data.token);
+      setTab("dashboard");
+      showToast("Logged in successfully");
+    } catch (error) {
+      showToast(error.message || "Login failed", "error");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const register = async (e) => {
+    e.preventDefault();
+
+    const name = registerForm.name.trim();
+    const email = registerForm.email.trim();
+    const password = registerForm.password;
+    const confirmPassword = registerForm.confirmPassword;
+
+    if (!name || !email || !password || !confirmPassword) {
+      showToast("Please fill all fields", "error");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      showToast("Passwords do not match", "error");
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      const data = await apiRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ name, email, password }),
+      }, "");
+
+      localStorage.setItem("aurum_token", data.token);
+      setToken(data.token);
+      setUser(data.user);
+      await loadTransactions(data.token);
+      setTab("dashboard");
+      setRegisterForm({ name: "", email: "", password: "", confirmPassword: "" });
+      showToast("Account created. You are logged in.");
+    } catch (error) {
+      showToast(error.message || "Failed to create account", "error");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem("aurum_token");
+    setToken("");
+    setUser(null);
+    setTransactions([]);
+    setSelectedMonth(null);
+    setModal(null);
+    showToast("Logged out");
+  };
 
   const d = { ...derived(transactions), txCount: transactions.length };
 
@@ -886,24 +1021,44 @@ export default function App() {
     setModal("edit");
   };
 
-  const saveTx = () => {
+  const saveTx = async () => {
     const desc = form.desc.trim();
     const amount = parseFloat(form.amount);
-    if (!desc || !amount || amount <= 0 || !form.date) { showToast("Please fill all fields", "error"); return; }
-    if (modal === "edit" && editing) {
-      setTransactions((txs) => txs.map((x) => x.id === editing ? { ...x, desc, amount, date: form.date, type: form.type, cat: form.cat } : x));
-      showToast("Transaction updated");
-    } else {
-      setTransactions((txs) => [...txs, { id: nextId, desc, amount, date: form.date, type: form.type, cat: form.cat }]);
-      setNextId((n) => n + 1);
-      showToast("Transaction added");
+    if (!desc || !amount || amount <= 0 || !form.date) {
+      showToast("Please fill all fields", "error");
+      return;
     }
-    setModal(null);
+
+    try {
+      if (modal === "edit" && editing) {
+        await apiRequest(`/transactions/${editing}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...form, desc, amount }),
+        });
+        showToast("Transaction updated");
+      } else {
+        await apiRequest("/transactions", {
+          method: "POST",
+          body: JSON.stringify({ ...form, desc, amount }),
+        });
+        showToast("Transaction added");
+      }
+
+      await loadTransactions();
+      setModal(null);
+    } catch (error) {
+      showToast(error.message || "Failed to save transaction", "error");
+    }
   };
 
-  const deleteTx = (id) => {
-    setTransactions((txs) => txs.filter((x) => x.id !== id));
-    showToast("Transaction deleted");
+  const deleteTx = async (id) => {
+    try {
+      await apiRequest(`/transactions/${id}`, { method: "DELETE" });
+      await loadTransactions();
+      showToast("Transaction deleted");
+    } catch (error) {
+      showToast(error.message || "Failed to delete transaction", "error");
+    }
   };
 
   const handleMonthClick = (key) => {
@@ -917,16 +1072,72 @@ export default function App() {
   const tabTitles = { dashboard: "", transactions: "Transactions", insights: "Insights" };
   const tabSubs = { dashboard: "", transactions: "All income & expenses", insights: "Patterns and performance" };
 
+  if (authLoading && !user) {
+    return (
+      <>
+        <FontLink />
+        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--bg)" }}>
+          <div style={{ color: "var(--text2)" }}>Loading…</div>
+        </div>
+      </>
+    );
+  }
+
+  if (!token || !user) {
+    return (
+      <>
+        <FontLink />
+        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20, background: "var(--bg)" }}>
+          <form onSubmit={authMode === "login" ? login : register} style={{ width: 360, maxWidth: "92vw", background: "var(--bg2)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius)", padding: 24 }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--gold)", marginBottom: 4 }}>AURUM</div>
+            <div style={{ color: "var(--text3)", fontSize: 12, marginBottom: 12 }}>{authMode === "login" ? "Login to continue" : "Create your account"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <button type="button" onClick={() => setAuthMode("login")}
+                style={{ padding: "8px 10px", borderRadius: 8, border: authMode === "login" ? "1px solid rgba(201,168,76,.3)" : "1px solid var(--glass-border)", background: authMode === "login" ? "var(--gold-dim)" : "var(--glass)", color: authMode === "login" ? "var(--gold)" : "var(--text2)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font-body)" }}>
+                Login
+              </button>
+              <button type="button" onClick={() => setAuthMode("register")}
+                style={{ padding: "8px 10px", borderRadius: 8, border: authMode === "register" ? "1px solid rgba(201,168,76,.3)" : "1px solid var(--glass-border)", background: authMode === "register" ? "var(--gold-dim)" : "var(--glass)", color: authMode === "register" ? "var(--gold)" : "var(--text2)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font-body)" }}>
+                Create account
+              </button>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {authMode === "register" && (
+                <input type="text" value={registerForm.name} placeholder="Full name" onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))}
+                  style={{ background: "var(--bg3)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, padding: "10px 12px", outline: "none", width: "100%" }} />
+              )}
+
+              <input type="email" value={authMode === "login" ? loginForm.email : registerForm.email} placeholder="Email" onChange={(e) => authMode === "login" ? setLoginForm((f) => ({ ...f, email: e.target.value })) : setRegisterForm((f) => ({ ...f, email: e.target.value }))}
+                style={{ background: "var(--bg3)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, padding: "10px 12px", outline: "none", width: "100%" }} />
+
+              <input type="password" value={authMode === "login" ? loginForm.password : registerForm.password} placeholder="Password" onChange={(e) => authMode === "login" ? setLoginForm((f) => ({ ...f, password: e.target.value })) : setRegisterForm((f) => ({ ...f, password: e.target.value }))}
+                style={{ background: "var(--bg3)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, padding: "10px 12px", outline: "none", width: "100%" }} />
+
+              {authMode === "register" && (
+                <input type="password" value={registerForm.confirmPassword} placeholder="Confirm password" onChange={(e) => setRegisterForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+                  style={{ background: "var(--bg3)", border: "1px solid var(--glass-border)", borderRadius: 8, color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, padding: "10px 12px", outline: "none", width: "100%" }} />
+              )}
+
+              <button type="submit" style={{ marginTop: 8, padding: "10px 14px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 600, cursor: "pointer", background: "var(--gold)", color: "#0b0f1a", border: "none" }}>
+                {authMode === "login" ? "Login" : "Create Account"}
+              </button>
+            </div>
+            <div style={{ marginTop: 14, color: "var(--text3)", fontSize: 11 }}>
+              You can create a new account and log in immediately.
+            </div>
+          </form>
+          <Toast toast={toast} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <FontLink />
-      
       <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
-
-        {/* Overlay (mobile) */}
         {sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 90 }} />}
 
-        {/* Sidebar */}
         <aside style={{
           width: 240, background: "var(--bg2)", borderRight: "1px solid var(--glass-border)",
           display: "flex", flexDirection: "column", padding: "28px 0", position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 100,
@@ -952,28 +1163,23 @@ export default function App() {
           </nav>
           <div style={{ padding: "16px 12px", borderTop: "1px solid var(--glass-border)" }}>
             <div style={{ background: "var(--glass)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius-sm)", padding: "12px 14px" }}>
-              <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>Active Role</div>
-              <select value={role} onChange={(e) => setRole(e.target.value)}
-                style={{ background: "var(--bg3)", border: "1px solid var(--glass-border)", color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, padding: "7px 10px", borderRadius: 8, width: "100%", cursor: "pointer", outline: "none" }}>
-                <option value="admin">👑 Administrator</option>
-                <option value="viewer">👁 Viewer</option>
-              </select>
+              <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>Logged In</div>
+              <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{user.name}</div>
+              <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{user.email}</div>
               <div style={{
                 display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 11, padding: "4px 10px", borderRadius: 20,
-                background: role === "admin" ? "var(--gold-dim)" : "var(--blue-dim)",
-                color: role === "admin" ? "var(--gold)" : "var(--blue)",
-                border: `1px solid ${role === "admin" ? "rgba(201,168,76,.25)" : "rgba(91,156,246,.25)"}`
-              }}>{role === "admin" ? "✦ Full Access" : "◎ Read Only"}</div>
+                background: "var(--gold-dim)",
+                color: "var(--gold)",
+                border: "1px solid rgba(201,168,76,.25)"
+              }}>✦ Full Access</div>
             </div>
           </div>
         </aside>
 
-        {/* Main */}
         <div style={{ marginLeft: 240, flex: 1, minHeight: "100vh" }}>
-          {/* Topbar */}
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 32px",
-            borderBottom: "1px solid var(--glass-border)", background: "rgba(11,15,26,.8)", backdropFilter: "blur(12px)",
+            borderBottom: "1px solid var(--glass-border)", background: "var(--bg2)", backdropFilter: "blur(12px)",
             position: "sticky", top: 0, zIndex: 50
           }}>
             <button onClick={() => setSidebarOpen(true)} style={{ display: "none", background: "none", border: "none", color: "var(--text)", fontSize: 20, cursor: "pointer", padding: 4 }}>☰</button>
@@ -982,28 +1188,15 @@ export default function App() {
               <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 2 }}>{tabSubs[tab]}</div>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button
-  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-  style={{
-    padding: "6px 12px",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--glass)",
-    border: "1px solid var(--glass-border)",
-    color: "var(--text)",
-    fontSize: 14,
-    cursor: "pointer"
-  }}
->
-  {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
-</button>
-              {role === "admin" && (
-                <button onClick={openAdd} style={{ padding: "9px 18px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", background: "var(--gold)", color: "#0b0f1a", display: "inline-flex", alignItems: "center", gap: 7 }}>＋ Add Transaction</button>
-              )}
-              <button style={{ padding: "6px 12px", borderRadius: "var(--radius-sm)", background: "var(--glass)", border: "1px solid var(--glass-border)", color: "var(--text2)", fontSize: 18, cursor: "pointer" }}>🔔</button>
+              <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                style={{ padding: "6px 12px", borderRadius: "var(--radius-sm)", background: "var(--glass)", border: "1px solid var(--glass-border)", color: "var(--text)", fontSize: 14, cursor: "pointer" }}>
+                {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+              </button>
+              <button onClick={openAdd} style={{ padding: "9px 18px", borderRadius: "var(--radius-sm)", fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none", background: "var(--gold)", color: "#0b0f1a", display: "inline-flex", alignItems: "center", gap: 7 }}>＋ Add Transaction</button>
+              <button onClick={logout} style={{ padding: "6px 12px", borderRadius: "var(--radius-sm)", background: "var(--glass)", border: "1px solid var(--glass-border)", color: "var(--text2)", fontSize: 13, cursor: "pointer" }}>Logout</button>
             </div>
           </div>
 
-          {/* Content */}
           <div style={{ padding: "28px 32px" }}>
             {tab === "dashboard" && (
               <>
@@ -1017,7 +1210,7 @@ export default function App() {
               </>
             )}
             {tab === "transactions" && (
-              <TransactionsView transactions={transactions} role={role} onAdd={openAdd} onEdit={openEdit} onDelete={deleteTx} />
+              <TransactionsView transactions={transactions} onAdd={openAdd} onEdit={openEdit} onDelete={deleteTx} />
             )}
             {tab === "insights" && (
               <InsightsView d={d} selectedMonth={selectedMonth} onMonthClick={(key) => { handleMonthClick(key); setTab("dashboard"); }} />
@@ -1025,10 +1218,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Modal */}
         {modal && <Modal modal={modal} form={form} setForm={setForm} onSave={saveTx} onClose={() => setModal(null)} />}
-
-        {/* Toast */}
         <Toast toast={toast} />
       </div>
     </>
